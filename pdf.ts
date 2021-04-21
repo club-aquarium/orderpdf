@@ -87,10 +87,10 @@ export function formatUnit(u: string): string {
 
 const fonts: TFontDictionary = {
 	"Open Sans": {
-		normal:      `${location.protocol}//${location.host}/fonts/OpenSans-Regular.ttf`,
-		bold:        `${location.protocol}//${location.host}/fonts/OpenSans-Bold.ttf`,
-		italics:     `${location.protocol}//${location.host}/fonts/OpenSans-Italic.ttf`,
-		bolditalics: `${location.protocol}//${location.host}/fonts/OpenSans-BoldItalic.ttf`,
+		normal:      String(new URL("fonts/OpenSans-Regular.ttf",    location.href)),
+		bold:        String(new URL("fonts/OpenSans-Bold.ttf",       location.href)),
+		italics:     String(new URL("fonts/OpenSans-Italic.ttf",     location.href)),
+		bolditalics: String(new URL("fonts/OpenSans-BoldItalic.ttf", location.href)),
 	}
 };
 const fontSize = 11;
