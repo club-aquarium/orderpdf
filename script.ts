@@ -94,12 +94,15 @@ const log = (() => {
 	};
 })();
 
-const domContentLoaded: Promise<void> = new Promise((resolve, _) => {
-	document.addEventListener("DOMContentLoaded", _ => {
-		console.log("DOMContentLoaded fired");
-		resolve();
+async function promisedEvent(obj: EventTarget, event: string): Promise<Event> {
+	return new Promise((resolve, _) => {
+		const f = (ev: Event) => {
+			obj.removeEventListener(event, f);
+			resolve(ev);
+		};
+		obj.addEventListener(event, f);
 	});
-});
+}
 
 class OrderTable {
 	private category: string|HTMLTableDataCellElement;
@@ -140,13 +143,16 @@ class OrderTable {
 		return tr;
 	}
 
+	clear(): void {
+		while(this.root.firstChild) {
+			this.root.removeChild(this.root.firstChild);
+		}
+	}
+
 	addArticle(a: Article): void {
 		const input = document.createElement("input");
 		input.setAttribute("type", "number");
 		input.setAttribute("min",  "0");
-		if(Math.random() < 0.5) {
-			input.setAttribute("value", "1");
-		}
 		this.addRow(
 			OrderTable.mktd("articleno", a.id),
 			OrderTable.mktd("article",   a.name),
@@ -164,8 +170,10 @@ class OrderTable {
 		}
 	}
 
-	getOrder(): OrderArticle[] {
+	getOrder(orderInfo: OrderInfo, date: string): Order {
+		const order = new Order(orderInfo, date);
 		const articles = [];
+		let n = 0;
 		for(const row of this.root.rows) {
 			const tds = Array.from(row.querySelectorAll("td"));
 			if(tds.length > 0 && tds[0].hasAttribute("rowspan")) {
@@ -178,19 +186,19 @@ class OrderTable {
 			if(name.match(/^\s*$/) || count.match(/^(\s|0)*$/)) {
 				continue;
 			}
-			articles.push({id: id, name: name, unit: unit, count: count});
+			order.add({id: id, name: name, unit: unit, count: count});
+			n++;
 		}
-		return articles;
+		log(`added ${n} articles`);
+		return order;
 	}
 }
 
-type DocumentStuff = {
-	date:  HTMLInputElement,
-	form:  HTMLFormElement;
-	table: OrderTable;
-}
-
-function guessDate(): string {
+/**
+ * Return the guessed delivery date as an ISO-8601 string.
+ * If it this before 2:00 pm the next day is picked, otherwise the next but one.
+ */
+function guessDeliveryDate(): string {
 	const now = new Date();
 	let   ms  = now.getTime();
 	ms += 86400 * 1000;
@@ -201,19 +209,29 @@ function guessDate(): string {
 	return now.iso8601Date();
 }
 
-async function parseDocument(): Promise<DocumentStuff> {
-	await domContentLoaded;
+type DocumentStuff = {
+	datePicker: HTMLInputElement,
+	orderForm:  HTMLFormElement;
+	orderTable: OrderTable;
+	wikiSelect: HTMLSelectElement;
+}
 
+function getDocumentStuff(): DocumentStuff {
 	const date = <HTMLInputElement|null>document.querySelector("#deliveryDate");
 	if(!date) {
 		throw "cannot find delivery date picker";
 	}
-	date.value = guessDate();
+	date.value = guessDeliveryDate();
 	log(`guessed delivery date: ${date.value}`);
 
 	const form = document.querySelector("form");
 	if(!form) {
 		throw "cannot find order form";
+	}
+
+	const select = document.querySelector("#wikiPage");
+	if(!select) {
+		throw "cannot find wiki page select";
 	}
 
 	const table = form.querySelector("tbody");
@@ -222,9 +240,10 @@ async function parseDocument(): Promise<DocumentStuff> {
 	}
 
 	return {
-		date:  date,
-		form:  form,
-		table: new OrderTable(table as HTMLTableSectionElement),
+		datePicker: date,
+		orderForm:  form,
+		orderTable: new OrderTable(table as HTMLTableSectionElement),
+		wikiSelect: select as HTMLSelectElement,
 	};
 }
 
@@ -247,8 +266,8 @@ function fetchSomething(url: string, type: XMLHttpRequestResponseType): Promise<
 	});
 }
 
-async function fetchOrderInfo(): Promise<OrderInfo> {
-	const r = await fetchSomething("/doku.php?do=export_code&id=gastro:bestellung:gelos&codeblock=0", "json");
+async function fetchOrderInfo(url: string): Promise<OrderInfo> {
+	const r = await fetchSomething(url, "json");
 	if(!isOrderInfo(r.response)) {
 		throw `unexpected order info: ${JSON.stringify(r.response)}`;
 	}
@@ -277,21 +296,21 @@ interface Article {
 
 type Error = string|undefined;
 
-function parseTable(table: HTMLTableElement): [Article[], Error] {
+function parseTable(table: HTMLTableElement): Article[] {
 	const articles: Article[] = [];
 	for(const row of table.rows) {
 		const tds = Array.from(row.querySelectorAll("td"));
 		if(tds.length == 1) {
 			continue;
 		} else if(tds.length != 4) {
-			return [[], `cannot parse article: ${row.outerHTML}`];
+			throw `cannot parse article: ${row.outerHTML}`;
 		}
 		const [id, name, unit, hint] = tds.map((e: HTMLElement|undefined) => e?.textContent?.normalize());
 		if(!name) {
-			return [[], `missing name: ${row.outerHTML}`];
+			throw `missing name: ${row.outerHTML}`;
 		}
 		if(!unit) {
-			return [[], `missing unit: ${row.outerHTML}`];
+			throw `missing unit: ${row.outerHTML}`;
 		}
 		articles.push({
 			id:     id || undefined,
@@ -300,68 +319,106 @@ function parseTable(table: HTMLTableElement): [Article[], Error] {
 			hint:   hint || undefined,
 		});
 	}
-	return [articles, undefined];
+	return articles;
 }
 
-async function fetchArticles(): Promise<Array<[string, Article[]]>> {
-	const r = await fetchSomething("/doku.php?id=gastro:bestellung:gelos&do=export_xhtmlbody", "document");
+async function fetchArticles(url: string): Promise<Array<[string, Article[]]>> {
+	const r = await fetchSomething(url, "document");
 	if(!r.responseXML) {
 		throw "cannot parse article list";
 	}
 	let articles: Array<[string, Article[]]> = [];
 	for(const [category, table] of findTables(r.responseXML)) {
-		const [more, err] = parseTable(<HTMLTableElement>table);
-		if(err) {
-			throw err;
-		}
+		const more = parseTable(<HTMLTableElement>table);
 		articles.push([category, more]);
 	}
 	return articles;
 }
 
-(async () => {
-	const [
-		{date, form, table},
-		orderInfo,
-		allArticles,
-	] = await Promise.all([
-		parseDocument(),
-		fetchOrderInfo(),
-		fetchArticles(),
-	]);
-	log("using order info " + JSON.stringify(orderInfo));
-	for(const [category, articles] of allArticles) {
-		table.setCategory(category);
-		for(const a of articles) {
-			table.addArticle(a);
-		}
+class DownloadLink {
+	elem: HTMLAnchorElement|null;
+
+	constructor(private parent: HTMLElement) {
+		this.elem = null;
 	}
 
-	let downloadLink: HTMLElement|null = null;
-	form.addEventListener("submit", async (ev: Event) => {
+	private getElem(): HTMLElement {
+		if(!this.elem) {
+			const e = document.createElement("a");
+			e.appendChild(document.createTextNode("Download PDF"));
+			this.parent.appendChild(e);
+			this.elem = e;
+		}
+		return this.elem;
+	}
+
+	set href(newurl: string) {
+		const oldurl = this.getElem().getAttribute("href");
+		if(oldurl) {
+			URL.revokeObjectURL(oldurl);
+		}
+		this.getElem().setAttribute("href", newurl);
+	}
+
+	set filename(name: string) {
+		this.getElem().setAttribute("download", name);
+	}
+}
+
+function getDownloadFilename(wikiSelect: HTMLSelectElement, date: string): string {
+	let name = "bestellung";
+	if(wikiSelect.selectedOptions.length > 0) {
+		name = wikiSelect.selectedOptions[0].text.toLowerCase();
+	}
+	return `${name}-${date}.pdf`;
+}
+
+(async () => {
+	await promisedEvent(document, "DOMContentLoaded");
+	const {datePicker, orderForm, wikiSelect, orderTable} = getDocumentStuff();
+
+
+	let orderInfo: OrderInfo|null = null;
+	const wikiPageSelected = async (_?: Event) => {
+		const wikiPage = wikiSelect.value;
+		if(!wikiPage) {
+			return;
+		}
+		const [info, allArticles] = await Promise.all([
+			fetchOrderInfo(`/doku.php?do=export_code&id=${wikiPage}&codeblock=0`),
+			fetchArticles(`/doku.php?id=${wikiPage}&do=export_xhtmlbody`),
+		]);
+		orderInfo = info;
+		log("using order info " + JSON.stringify(orderInfo));
+		let n = 0;
+		orderTable.clear();
+		for(const [category, articles] of allArticles) {
+			orderTable.setCategory(category);
+			for(const a of articles) {
+				orderTable.addArticle(a);
+			}
+			n += articles.length;
+		}
+		log(`populated table with ${n} articles`);
+	};
+	wikiSelect.addEventListener("change", wikiPageSelected);
+	wikiPageSelected();
+
+	const downloadLink = new DownloadLink(orderForm);
+	orderForm.addEventListener("submit", async (ev: Event) => {
 		ev.preventDefault();
 
-		log("creating new order...");
-		const articles = table.getOrder();
-		const order    = new Order(orderInfo, date.value)
-		for(const article of articles) {
-			order.add(article);
+		if(!orderInfo) {
+			log("no OrderInfo set, this should not happen");
+			return;
 		}
-		log(`added ${articles.length} articles`);
 
-		const blob = await order.pdf();
-		if(downloadLink) {
-			URL.revokeObjectURL(downloadLink.getAttribute("href") as string);
-			log("revoked old link");
-		} else {
-			downloadLink = document.createElement("a");
-			downloadLink.appendChild(document.createTextNode("Download PDF"));
-			form.appendChild(downloadLink);
-			log("created download link");
-		}
-		downloadLink.setAttribute("href", URL.createObjectURL(blob));
-		downloadLink.setAttribute("download", `gelos-${date.value}.pdf`);
-		log(`new download link: ${downloadLink.getAttribute("href")}`);
+		log("creating new order...");
+		const order = orderTable.getOrder(orderInfo, datePicker.value);
+		const blob  = await order.pdf();
+		downloadLink.href     = URL.createObjectURL(blob);
+		downloadLink.filename = getDownloadFilename(wikiSelect, datePicker.value);
+		log(`new download link: ${downloadLink.elem?.getAttribute("href")}`);
 	});
 })().catch((e: string) => {
 	log(e);
