@@ -107,7 +107,14 @@ async function promisedEvent(obj: EventTarget, event: string): Promise<Event> {
 class OrderTable {
 	private category: string|HTMLTableDataCellElement;
 
-	static mktd(cls: string, child?: string|HTMLElement): HTMLTableDataCellElement {
+	static mkNumInput(): HTMLInputElement {
+		const input = document.createElement("input");
+		input.setAttribute("type", "number");
+		input.setAttribute("min",  "0");
+		return input;
+	}
+
+	static mktd(cls: string, child?: string|Node): HTMLTableDataCellElement {
 		const td: HTMLTableDataCellElement = document.createElement("td");
 		td.setAttribute("class", cls);
 		if(child) {
@@ -128,7 +135,7 @@ class OrderTable {
 		this.category = category;
 	}
 
-	addRow(...tds: HTMLElement[]): HTMLTableRowElement {
+	addRow(...tds: Node[]): HTMLTableRowElement {
 		const tr: HTMLTableRowElement = document.createElement("tr");
 		if(typeof this.category == "string") {
 			const e = document.createElement("div");
@@ -143,6 +150,17 @@ class OrderTable {
 		return tr;
 	}
 
+	addEmptyRow(): void {
+		const textInput = document.createElement("input");
+		textInput.setAttribute("type", "text");
+		this.addRow(
+			OrderTable.mktd("articleno", textInput.cloneNode()),
+			OrderTable.mktd("article",   textInput.cloneNode()),
+			OrderTable.mktd("unit",      textInput),
+			OrderTable.mktd("count",     OrderTable.mkNumInput()),
+		);
+	}
+
 	clear(): void {
 		while(this.root.firstChild) {
 			this.root.removeChild(this.root.firstChild);
@@ -150,14 +168,11 @@ class OrderTable {
 	}
 
 	addArticle(a: Article): void {
-		const input = document.createElement("input");
-		input.setAttribute("type", "number");
-		input.setAttribute("min",  "0");
 		this.addRow(
 			OrderTable.mktd("articleno", a.id),
 			OrderTable.mktd("article",   a.name),
 			OrderTable.mktd("unit",      a.unit),
-			OrderTable.mktd("count",     input),
+			OrderTable.mktd("count",     OrderTable.mkNumInput()),
 		);
 	}
 
@@ -210,10 +225,12 @@ function guessDeliveryDate(): string {
 }
 
 type DocumentStuff = {
-	datePicker: HTMLInputElement,
-	orderForm:  HTMLFormElement;
-	orderTable: OrderTable;
-	wikiSelect: HTMLSelectElement;
+	datePicker:     HTMLInputElement;
+	emptyRowButton: HTMLInputElement;
+	linkarea:       HTMLElement;
+	orderForm:      HTMLFormElement;
+	orderTable:     OrderTable;
+	wikiSelect:     HTMLSelectElement;
 }
 
 function getDocumentStuff(): DocumentStuff {
@@ -234,16 +251,28 @@ function getDocumentStuff(): DocumentStuff {
 		throw "cannot find wiki page select";
 	}
 
+	const emptyRowButton = document.querySelector("#addRow");
+	if(!emptyRowButton) {
+		throw "cannot find button to add empty row";
+	}
+
+	const linkarea = document.querySelector("#linkarea");
+	if(!linkarea) {
+		throw "cannot find link area";
+	}
+
 	const table = form.querySelector("tbody");
 	if(!table) {
 		throw "cannot find order table";
 	}
 
 	return {
-		datePicker: date,
-		orderForm:  form,
-		orderTable: new OrderTable(table as HTMLTableSectionElement),
-		wikiSelect: select as HTMLSelectElement,
+		datePicker:     date,
+		emptyRowButton: emptyRowButton as HTMLInputElement,
+		linkarea:       linkarea as HTMLElement,
+		orderForm:      form,
+		orderTable:     new OrderTable(table as HTMLTableSectionElement),
+		wikiSelect:     select as HTMLSelectElement,
 	};
 }
 
@@ -375,8 +404,14 @@ function getDownloadFilename(wikiSelect: HTMLSelectElement, date: string): strin
 
 (async () => {
 	await promisedEvent(document, "DOMContentLoaded");
-	const {datePicker, orderForm, wikiSelect, orderTable} = getDocumentStuff();
-
+	const {
+		datePicker,
+		emptyRowButton,
+		linkarea,
+		orderForm,
+		wikiSelect,
+		orderTable,
+	} = getDocumentStuff();
 
 	let orderInfo: OrderInfo|null = null;
 	const wikiPageSelected = async (_?: Event) => {
@@ -399,12 +434,13 @@ function getDownloadFilename(wikiSelect: HTMLSelectElement, date: string): strin
 			}
 			n += articles.length;
 		}
+		orderTable.setCategory("manuell");
 		log(`populated table with ${n} articles`);
 	};
 	wikiSelect.addEventListener("change", wikiPageSelected);
 	wikiPageSelected();
 
-	const downloadLink = new DownloadLink(orderForm);
+	const downloadLink = new DownloadLink(linkarea);
 	orderForm.addEventListener("submit", async (ev: Event) => {
 		ev.preventDefault();
 
@@ -419,6 +455,10 @@ function getDownloadFilename(wikiSelect: HTMLSelectElement, date: string): strin
 		downloadLink.href     = URL.createObjectURL(blob);
 		downloadLink.filename = getDownloadFilename(wikiSelect, datePicker.value);
 		log(`new download link: ${downloadLink.elem?.getAttribute("href")}`);
+	});
+
+	emptyRowButton.addEventListener("click", (_: Event) => {
+		orderTable.addEmptyRow();
 	});
 })().catch((e: string) => {
 	log(e);
