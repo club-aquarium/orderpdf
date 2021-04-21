@@ -1,0 +1,8 @@
+{
+	"name": "orderpdf",
+	"version": "0.0.1",
+	"devDependencies": {
+		"pdfmake": "*",
+		"@types/pdfmake": "*"
+	}
+}

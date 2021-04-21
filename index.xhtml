@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+	<head>
+		<title>orderpdf</title>
+		<meta name="viewport" content="width=device-width"/>
+		<script type="text/javascript" src="script.js" defer="yes"/>
+		<link rel="stylesheet" href="style.css"/>
+	</head>
+	<body>
+		<input id="showLog" type="checkbox" checked="yes"/>
+		<label for="showLog">show log</label>
+		<ul id="log"/>
+		<form>
+			<label>Lieferdatum: <input id="deliveryDate" type="date"/></label>
+			<table>
+				<thead>
+					<tr>
+						<th class="articleno" colspan="2">Artikel-Nr.</th>
+						<th class="article">Artikel</th>
+						<th class="unit">Gebinde</th>
+						<th class="count">Anzahl</th>
+					</tr>
+				</thead>
+				<tbody/>
+			</table>
+			<input type="submit" value="PDF erstellen"/>
+		</form>
+	</body>
+</html>
