@@ -31,6 +31,7 @@ pkgs.mkShell {
   nativeBuildInputs = (with pkgs; [
     esbuild
     gnumake
+    nginx
     sassc
   ]) ++ (with pkgs.nodePackages; [
     npm

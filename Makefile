@@ -26,6 +26,10 @@ fontfiles = \
 
 all: build/index.xhtml build/style.css build/script.js $(fontfiles)
 
+serve: all
+	sed -e "s,%%PWD%%,`pwd`,g" nginx.conf > work/nginx.conf
+	nginx -p build -c ../work/nginx.conf
+
 clean:
 	$(RM) -r build work
 distclean: clean
