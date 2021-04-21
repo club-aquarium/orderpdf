@@ -18,7 +18,13 @@ sassflags = \
 	--style compressed \
 	$(SASSFLAGS)
 
-all: build/index.xhtml build/style.css build/script.js
+fontfiles = \
+	build/fonts/OpenSans-Regular.ttf \
+	build/fonts/OpenSans-Bold.ttf \
+	build/fonts/OpenSans-Italic.ttf \
+	build/fonts/OpenSans-BoldItalic.ttf
+
+all: build/index.xhtml build/style.css build/script.js $(fontfiles)
 
 clean:
 	$(RM) -r build work
@@ -38,6 +44,9 @@ work/script.js: script.ts package-lock.json
 	$(TSC) $(tsflags) --outDir $(@D) $(@F:.js=.ts) || { $(RM) $@; false; }
 work/pdf.js: pdf.ts package-lock.json
 	$(TSC) $(tsflags) --module CommonJS --outDir $(@D) $(@F:.js=.ts) || { $(RM) $@; false; }
+
+build/fonts/%: fonts/%
+	install -Dm 644 fonts/$(@F) $@
 
 package-lock.json: package.json
 	$(NPM) install --ignore-scripts .
