@@ -150,15 +150,19 @@ class OrderTable {
 		return tr;
 	}
 
-	addEmptyRow(): void {
-		const textInput = document.createElement("input");
-		textInput.setAttribute("type", "text");
+	addEmptyRow(): [HTMLInputElement, HTMLInputElement, HTMLInputElement, HTMLInputElement] {
+		const id = document.createElement("input");
+		id.setAttribute("type", "text");
+		const name  = id.cloneNode() as HTMLInputElement;
+		const unit  = id.cloneNode() as HTMLInputElement;
+		const count = OrderTable.mkNumInput();
 		this.addRow(
-			OrderTable.mktd("articleno", textInput.cloneNode()),
-			OrderTable.mktd("article",   textInput.cloneNode()),
-			OrderTable.mktd("unit",      textInput),
-			OrderTable.mktd("count",     OrderTable.mkNumInput()),
+			OrderTable.mktd("articleno", id),
+			OrderTable.mktd("article",   name),
+			OrderTable.mktd("unit",      unit),
+			OrderTable.mktd("count",     count),
 		);
+		return [id, name, unit, count];
 	}
 
 	clear(): void {
@@ -185,27 +189,100 @@ class OrderTable {
 		}
 	}
 
-	getOrder(orderInfo: OrderInfo, date: string): Order {
-		const order = new Order(orderInfo, date);
+	static abc(row: HTMLElement): [HTMLElement, HTMLElement, HTMLElement, HTMLElement]|null {
+		const tds = Array.from(row.querySelectorAll("td"));
+		if(tds.length > 0 && tds[0].hasAttribute("rowspan")) {
+			tds.shift();
+		}
+		if(tds.length < 4) {
+			return null;
+		}
+		return Array.from(tds).slice(0, 4) as any;
+	}
+
+	getOrderArticles(): OrderArticle[] {
 		const articles = [];
-		let n = 0;
 		for(const row of this.root.rows) {
-			const tds = Array.from(row.querySelectorAll("td"));
-			if(tds.length > 0 && tds[0].hasAttribute("rowspan")) {
-				tds.shift();
-			}
-			if(tds.length < 4) {
+			const tds = OrderTable.abc(row);
+			if(!tds) {
 				continue;
 			}
-			const [id, name, unit, count] = Array.from(tds).slice(0, 4).map(OrderTable.getCellText);
+			const [id, name, unit, count] = tds.map(OrderTable.getCellText);
 			if(name.match(/^\s*$/) || count.match(/^(\s|0)*$/)) {
 				continue;
 			}
-			order.add({id: id, name: name, unit: unit, count: count});
-			n++;
+			articles.push({id: id, name: name, unit: unit, count: count});
 		}
-		log(`added ${n} articles`);
+		return articles;
+	}
+
+	getOrder(orderInfo: OrderInfo, date: string): Order {
+		const order = new Order(orderInfo, date);
+		const articles = this.getOrderArticles();
+		articles.forEach(order.add);
+		log(`added ${articles.length} articles`);
 		return order;
+	}
+
+	save(key: string): void {
+		const articles = this.getOrderArticles();
+		localStorage.setItem(`orderpdf::${key}`, JSON.stringify(articles));
+		log(`saved order to orderpdf::${key}`);
+	}
+
+	private static loadFromStorage(key: string): OrderArticle[] {
+		log(`loading order from orderpdf::${key}...`);
+		try {
+			const xs = JSON.parse(localStorage.getItem(`orderpdf::${key}`) || "null");
+			if(!Array.isArray(xs)) {
+				return [];
+			}
+			return xs.filter((x: unknown) =>
+				typeof x == "object"
+					&& x != null
+					&& Object.prototype.hasOwnProperty.call(x, "name")
+					&& Object.prototype.hasOwnProperty.call(x, "count")
+					&& typeof (x as any).name  == "string"
+					&& typeof (x as any).count == "string"
+					&& (!Object.prototype.hasOwnProperty.call(x, "id")   || typeof (x as any).id   == "string")
+					&& (!Object.prototype.hasOwnProperty.call(x, "unit") || typeof (x as any).unit == "string")
+			);
+		} catch(e) {
+			return [];
+		}
+	}
+
+	load(key: string): void {
+		const saved = OrderTable.loadFromStorage(key);
+		for(const row of this.root.rows) {
+			const tds = OrderTable.abc(row);
+			if(!tds) {
+				continue;
+			}
+			const id    = OrderTable.getCellText(tds[0]);
+			const count = tds[3].querySelector("input");
+			if(!id || !count) {
+				continue;
+			}
+
+			for(let i = 0; i < saved.length; i++) {
+				if(saved[i].id == id) {
+					count.value = saved[i].count;
+					saved.splice(i, 1);
+					break;
+				}
+			}
+		}
+
+		for(const article of saved) {
+			const [id, name, unit, count] = this.addEmptyRow();
+			id.value    = article.id || "";
+			name.value  = article.name;
+			unit.value  = article.unit || "";
+			count.value = article.count;
+		}
+
+		log("restored saved order");
 	}
 }
 
@@ -230,6 +307,7 @@ type DocumentStuff = {
 	linkarea:       HTMLElement;
 	orderForm:      HTMLFormElement;
 	orderTable:     OrderTable;
+	saveButton:     HTMLInputElement;
 	wikiSelect:     HTMLSelectElement;
 }
 
@@ -261,6 +339,11 @@ function getDocumentStuff(): DocumentStuff {
 		throw "cannot find link area";
 	}
 
+	const saveButton = document.querySelector("#save");
+	if(!saveButton) {
+		throw "cannot find save button";
+	}
+
 	const table = form.querySelector("tbody");
 	if(!table) {
 		throw "cannot find order table";
@@ -272,6 +355,7 @@ function getDocumentStuff(): DocumentStuff {
 		linkarea:       linkarea as HTMLElement,
 		orderForm:      form,
 		orderTable:     new OrderTable(table as HTMLTableSectionElement),
+		saveButton:     saveButton as HTMLInputElement,
 		wikiSelect:     select as HTMLSelectElement,
 	};
 }
@@ -409,8 +493,9 @@ function getDownloadFilename(wikiSelect: HTMLSelectElement, date: string): strin
 		emptyRowButton,
 		linkarea,
 		orderForm,
-		wikiSelect,
 		orderTable,
+		saveButton,
+		wikiSelect,
 	} = getDocumentStuff();
 
 	let orderInfo: OrderInfo|null = null;
@@ -425,6 +510,7 @@ function getDownloadFilename(wikiSelect: HTMLSelectElement, date: string): strin
 		]);
 		orderInfo = info;
 		log("using order info " + JSON.stringify(orderInfo));
+
 		let n = 0;
 		orderTable.clear();
 		for(const [category, articles] of allArticles) {
@@ -436,6 +522,8 @@ function getDownloadFilename(wikiSelect: HTMLSelectElement, date: string): strin
 		}
 		orderTable.setCategory("manuell");
 		log(`populated table with ${n} articles`);
+
+		orderTable.load(wikiPage);
 	};
 	wikiSelect.addEventListener("change", wikiPageSelected);
 	wikiPageSelected();
@@ -459,6 +547,14 @@ function getDownloadFilename(wikiSelect: HTMLSelectElement, date: string): strin
 
 	emptyRowButton.addEventListener("click", (_: Event) => {
 		orderTable.addEmptyRow();
+	});
+
+	saveButton.addEventListener("click", (_: Event) => {
+		const wikiPage = wikiSelect.value;
+		if(!wikiPage) {
+			return;
+		}
+		orderTable.save(wikiPage);
 	});
 })().catch((e: string) => {
 	log(e);
