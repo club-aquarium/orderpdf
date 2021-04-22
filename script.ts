@@ -302,6 +302,7 @@ function guessDeliveryDate(): string {
 }
 
 type DocumentStuff = {
+	clearButton:    HTMLInputElement;
 	datePicker:     HTMLInputElement;
 	emptyRowButton: HTMLInputElement;
 	linkarea:       HTMLElement;
@@ -329,6 +330,11 @@ function getDocumentStuff(): DocumentStuff {
 		throw "cannot find wiki page select";
 	}
 
+	const clearButton = document.querySelector("#clear");
+	if(!clearButton) {
+		throw "cannot find clear button";
+	}
+
 	const emptyRowButton = document.querySelector("#addRow");
 	if(!emptyRowButton) {
 		throw "cannot find button to add empty row";
@@ -350,6 +356,7 @@ function getDocumentStuff(): DocumentStuff {
 	}
 
 	return {
+		clearButton:    clearButton as HTMLInputElement,
 		datePicker:     date,
 		emptyRowButton: emptyRowButton as HTMLInputElement,
 		linkarea:       linkarea as HTMLElement,
@@ -489,6 +496,7 @@ function getDownloadFilename(wikiSelect: HTMLSelectElement, date: string): strin
 (async () => {
 	await promisedEvent(document, "DOMContentLoaded");
 	const {
+		clearButton,
 		datePicker,
 		emptyRowButton,
 		linkarea,
@@ -547,6 +555,12 @@ function getDownloadFilename(wikiSelect: HTMLSelectElement, date: string): strin
 
 	emptyRowButton.addEventListener("click", (_: Event) => {
 		orderTable.addEmptyRow();
+	});
+
+	clearButton.addEventListener("click", (_: Event) => {
+		for(const elem of orderTable.root.querySelectorAll(".count > input")) {
+			(elem as HTMLInputElement).value = "";
+		}
 	});
 
 	saveButton.addEventListener("click", (_: Event) => {
