@@ -36,7 +36,7 @@ distclean: clean
 	$(RM) -r node_modules package-lock.json
 
 build/index.xhtml: index.xhtml
-	install -Dm 644 $(@F) $@
+	sed -e "s,%%VERSION%%,`git show --no-patch --format='%ci' | head -c10` commit `git rev-parse --short HEAD`,g" $(@F) | install -Dm 644 /dev/stdin $@
 
 build/style.css: style.sass
 	install -d $(@D)
