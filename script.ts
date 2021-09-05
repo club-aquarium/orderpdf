@@ -219,7 +219,7 @@ class OrderTable {
 	getOrder(orderInfo: OrderInfo, date: string): Order {
 		const order = new Order(orderInfo, date);
 		const articles = this.getOrderArticles();
-		articles.forEach(order.add);
+		articles.forEach(x => order.add(x));
 		log(`added ${articles.length} articles`);
 		return order;
 	}
